@@ -15,13 +15,15 @@ FROM centos:7 AS builder
 
 ENV PATH /usr/share/elasticsearch/bin:$PATH
 
+RUN yum install -y java-11-openjdk-headless
+
 RUN groupadd -g 1000 elasticsearch &&     adduser -u 1000 -g 1000 -d /usr/share/elasticsearch elasticsearch
 
 WORKDIR /usr/share/elasticsearch
 
-RUN cd /opt && curl --retry 8 -s -L -O https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-7.5.1-linux-x86_64.tar.gz && cd -
+RUN cd /opt && curl --retry 8 -s -L -O https://artifacts.elastic.co/downloads/elasticsearch/elasticsearch-7.5.1-no-jdk-linux-x86_64.tar.gz && cd -
 
-RUN tar zxf /opt/elasticsearch-7.5.1-linux-x86_64.tar.gz --strip-components=1
+RUN tar zxf /opt/elasticsearch-7.5.1-no-jdk-linux-x86_64.tar.gz --strip-components=1
 RUN grep ES_DISTRIBUTION_TYPE=tar /usr/share/elasticsearch/bin/elasticsearch-env     && sed -ie 's/ES_DISTRIBUTION_TYPE=tar/ES_DISTRIBUTION_TYPE=docker/' /usr/share/elasticsearch/bin/elasticsearch-env
 RUN mkdir -p config data logs
 RUN chmod 0775 config data logs
@@ -44,17 +46,22 @@ RUN groupadd -g 1000 elasticsearch &&     adduser -u 1000 -g 1000 -G 0 -d /usr/s
 WORKDIR /usr/share/elasticsearch
 COPY --from=builder --chown=1000:0 /usr/share/elasticsearch /usr/share/elasticsearch
 
-# Replace OpenJDK's built-in CA certificate keystore with the one from the OS
-# vendor. The latter is superior in several ways.
-# REF: https://github.com/elastic/elasticsearch-docker/issues/171
-RUN ln -sf /etc/pki/ca-trust/extracted/java/cacerts /usr/share/elasticsearch/jdk/lib/security/cacerts
-
 ENV PATH /usr/share/elasticsearch/bin:$PATH
 
 COPY --chown=1000:0 bin/docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 # Openshift overrides USER and uses ones with randomly uid>1024 and gid=0
 # Allow ENTRYPOINT (and ES) to run even with a different user
+RUN yum install -y java-11-openjdk-headless
+RUN mkdir -p  /usr/share/elasticsearch/jdk/bin
+RUN ln -s /usr/bin/java  /usr/share/elasticsearch/jdk/bin/java
+RUN echo xpack.ml.enabled: false >>  /usr/share/elasticsearch/config/elasticsearch.yml
+RUN echo bootstrap.system_call_filter: false >>  /usr/share/elasticsearch/config/elasticsearch.yml
+RUN echo discovery.type: single-node >>  /usr/share/elasticsearch/config/elasticsearch.yml
+RUN sed -i 's/-Xmx1g/-Xmx256m/g' /usr/share/elasticsearch/config/jvm.options
+RUN sed -i 's/-Xms1g/-Xms256m/g' /usr/share/elasticsearch/config/jvm.options
+
+
 RUN chgrp 0 /usr/local/bin/docker-entrypoint.sh &&     chmod g=u /etc/passwd &&     chmod 0775 /usr/local/bin/docker-entrypoint.sh
 
 EXPOSE 9200 9300
